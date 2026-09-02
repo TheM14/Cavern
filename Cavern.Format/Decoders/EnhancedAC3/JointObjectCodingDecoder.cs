@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Runtime.CompilerServices;
 using System.Threading;
 
@@ -51,9 +51,8 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
         /// <summary>
         /// Decode and dequantize a complete JOC matrix around a <paramref name="quantizedCenter"/> value.
         /// </summary>
-        unsafe void DecodeCoarse(int obj, float[][][] mixMatrix, int quantizedCenter, float gainStep) {
-            float center = quantizedCenter * gainStep;
-            float max = center * 2;
+        unsafe void DecodeCoarse(int obj, float[][][] mixMatrix, int quantizationLevels, float gainStep) {
+            int center = quantizationLevels >> 1;
             int bands = this.bands[obj];
             int[][][] sourceMatrix = jocMatrix[obj];
             for (int dp = 0; dp < dataPoints[obj]; dp++) {
@@ -64,7 +63,7 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
                     float[] chMatrix = dpMatrix[ch];
                     fixed (int* source = chSource) {
                         fixed (float* destination = chMatrix) {
-                            DecodeCoarseChannel(source, destination, center, gainStep, max, bands);
+                            DecodeCoarseChannel(source, destination, center, gainStep, quantizationLevels, bands);
                         }
                     }
                 }
@@ -72,14 +71,21 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        unsafe void DecodeCoarseChannel(int* source, float* destination, float center, float gainStep, float max, int bands) {
-            *destination = (center + *source * gainStep) % max;
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        unsafe void DecodeCoarseChannel(int* source, float* destination, int center, float gainStep,
+            int quantizationLevels, int bands) {
+            int quantized = PositiveModulo(center + *source, quantizationLevels);
+            *destination = (quantized - center) * gainStep;
             while (--bands != 0) {
-                float next = (*destination + *++source * gainStep) % max;
-                *(destination++) -= center;
-                *destination = next;
+                quantized = PositiveModulo(quantized + *++source, quantizationLevels);
+                *++destination = (quantized - center) * gainStep;
             }
-            *destination -= center;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        static int PositiveModulo(int value, int modulus) {
+            int result = value % modulus;
+            return result < 0 ? result + modulus : result;
         }
 
         /// <summary>
@@ -121,16 +127,19 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
 
         void GetMixingMatrices(int obj, int timeslots, float[][][] mixMatrix,
             float[][][] interpolationMatrix, float[][] prevMatrix) {
-            int centerValue = quantizationTable[obj] * 48 + 48;
+            int quantization = quantizationTable[obj];
+            int quantizationLevels = 96 * (1 + quantization);
+            int centerValue = quantizationLevels >> 1;
             if (ObjectActive[obj]) {
-                float gainStep = .2f - quantizationTable[obj] * .1f;
+                // Exact dense-JOC dequantization step: 820 / (4096 * (1 + quant_idx)).
+                float gainStep = 820f / (4096f * (1 + quantization));
                 if (sparseCoded[obj]) {
                     // Call DecodeSparse and revert 0 to gainStep when the standard documentation is fixed
                     //DecodeSparse(obj, mixMatrix, centerValue);
                     HadSparse = true;
                     Dequantize(obj, mixMatrix, centerValue, 0);
                 } else {
-                    DecodeCoarse(obj, mixMatrix, centerValue, gainStep);
+                    DecodeCoarse(obj, mixMatrix, quantizationLevels, gainStep);
                 }
             } else {
                 // The final result is in the interpolation matrix.
