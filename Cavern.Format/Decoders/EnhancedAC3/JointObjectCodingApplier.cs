@@ -34,23 +34,6 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
         /// </summary>
         readonly (float[] real, float[] imaginary)[] qmfbCache;
 
-
-        /// <summary>
-        /// Experimental JOC input delay, in QMF timeslots. This is deliberately
-        /// applied after analysis QMF and before the object mixing matrix.
-        /// </summary>
-        const int jocQmfDelaySlots = 10;
-
-        /// <summary>
-        /// Per-input-channel complex QMF delay line for the delay experiment.
-        /// </summary>
-        readonly float[][][] jocQmfDelayReal, jocQmfDelayImaginary;
-
-        /// <summary>
-        /// Current slot in the 10-timeslot JOC QMF delay line.
-        /// </summary>
-        int jocQmfDelayPosition;
-
         /// <summary>
         /// Used for waiting while started tasks work.
         /// </summary>
@@ -83,21 +66,6 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
             timeslotCache = new float[objects][];
             results = new (float[], float[])[maxChannels];
             qmfbCache = new (float[], float[])[objects];
-            jocQmfDelayReal = new float[maxChannels][][];
-            jocQmfDelayImaginary = new float[maxChannels][][];
-            for (int ch = 0; ch < maxChannels; ++ch) {
-                // 'results' must be independent from the converter's recycled
-                // outCache because the current QMF slot is immediately pushed
-                // into the delay line while the delayed slot is mixed below.
-                results[ch] = (new float[QuadratureMirrorFilterBank.subbands],
-                    new float[QuadratureMirrorFilterBank.subbands]);
-                jocQmfDelayReal[ch] = new float[jocQmfDelaySlots][];
-                jocQmfDelayImaginary[ch] = new float[jocQmfDelaySlots][];
-                for (int slot = 0; slot < jocQmfDelaySlots; ++slot) {
-                    jocQmfDelayReal[ch][slot] = new float[QuadratureMirrorFilterBank.subbands];
-                    jocQmfDelayImaginary[ch][slot] = new float[QuadratureMirrorFilterBank.subbands];
-                }
-            }
             for (int obj = 0; obj < objects; ++obj) {
                 timeslotCache[obj] = new float[QuadratureMirrorFilterBank.subbands];
                 qmfbCache[obj] = (new float[QuadratureMirrorFilterBank.subbands], new float[QuadratureMirrorFilterBank.subbands]);
@@ -124,36 +92,19 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
             for (int ch = 0; ch < joc.ChannelCount; ++ch) {
                 ThreadPool.QueueUserWorkItem(channel => {
                     int ch = (int)channel;
-                    (float[] real, float[] imaginary) current;
                     fixed (float* pInput = input[ch]) {
                         if (!mono) {
-                            current = converters[ch].ProcessForward(pInput);
+                            results[ch] = converters[ch].ProcessForward(pInput);
                         } else {
-                            current = converters[ch].ProcessForward_Mono(pInput);
+                            results[ch] = converters[ch].ProcessForward_Mono(pInput);
                         }
                     }
-
-                    // Experimental Dolby-JOC-style preprocessing probe:
-                    // delay complex QMF by exactly 10 timeslots (10 * 64 samples)
-                    // before multiplying it by mixMatrix[obj][timeslot].
-                    float[] delayedReal = jocQmfDelayReal[ch][jocQmfDelayPosition];
-                    float[] delayedImaginary = jocQmfDelayImaginary[ch][jocQmfDelayPosition];
-                    Array.Copy(delayedReal, results[ch].real, QuadratureMirrorFilterBank.subbands);
-                    Array.Copy(delayedImaginary, results[ch].imaginary, QuadratureMirrorFilterBank.subbands);
-                    Array.Copy(current.real, delayedReal, QuadratureMirrorFilterBank.subbands);
-                    Array.Copy(current.imaginary, delayedImaginary, QuadratureMirrorFilterBank.subbands);
                     if (Interlocked.Decrement(ref runs) == 0) {
                         taskWaiter.Set();
                     }
                 }, ch);
             }
             taskWaiter.Wait();
-
-            // Advance once per 64-sample input timeslot, after every channel has
-            // read/written the same delay-line position.
-            if (++jocQmfDelayPosition == jocQmfDelaySlots) {
-                jocQmfDelayPosition = 0;
-            }
 
             // Inverse transformations
             int objects = joc.ObjectCount;
@@ -176,7 +127,9 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
             }
             taskWaiter.Wait();
 
-            if (++timeslot == input.Length) {
+            // mixMatrix's timeslot dimension is frameSize / 64 (normally 24),
+            // not the number of possible JOC input channel positions (7).
+            if (++timeslot == frameSize / QuadratureMirrorFilterBank.subbands) {
                 timeslot = 0;
             }
             return timeslotCache;
