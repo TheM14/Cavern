@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Runtime.CompilerServices;
 using System.Threading;
 
@@ -127,9 +127,7 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
             }
             taskWaiter.Wait();
 
-            // mixMatrix's timeslot dimension is frameSize / 64 (normally 24),
-            // not the number of possible JOC input channel positions (7).
-            if (++timeslot == frameSize / QuadratureMirrorFilterBank.subbands) {
+            if (++timeslot == input.Length) {
                 timeslot = 0;
             }
             return timeslotCache;
