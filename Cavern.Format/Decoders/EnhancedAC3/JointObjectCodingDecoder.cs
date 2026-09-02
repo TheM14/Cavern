@@ -71,7 +71,6 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         unsafe void DecodeCoarseChannel(int* source, float* destination, int center, float gainStep,
             int quantizationLevels, int bands) {
             int quantized = PositiveModulo(center + *source, quantizationLevels);
