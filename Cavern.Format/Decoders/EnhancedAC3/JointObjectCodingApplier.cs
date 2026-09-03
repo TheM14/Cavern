@@ -10,6 +10,37 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
     /// </summary>
     class JointObjectCodingApplier : IDisposable {
         /// <summary>
+        /// Delay of the core channel QMF input in timeslots.
+        /// </summary>
+        const int inputDelay = 10;
+
+        /// <summary>
+        /// Real coefficients of the surround band-0 complex FIR, ordered from oldest to newest input.
+        /// </summary>
+        static readonly float[] surroundFilterReal = {
+            0.0013996040215715766f, 0.003839150769636035f, 0.007512642536312342f,
+            0.012419373728334904f, 0.018367428332567215f, 0.0249701626598835f,
+            0.03167900815606117f, 0.03785000368952751f, 0.04283412545919418f,
+            0.04607561603188515f, 0.047200120985507965f, 0.04607561603188515f,
+            0.04283412545919418f, 0.03785000368952751f, 0.03167900815606117f,
+            0.0249701626598835f, 0.018367428332567215f, 0.012419373728334904f,
+            0.007512642536312342f, 0.003839150769636035f, 0.0013996040215715766f
+        };
+
+        /// <summary>
+        /// Imaginary coefficients of the surround band-0 complex FIR, ordered from oldest to newest input.
+        /// </summary>
+        static readonly float[] surroundFilterImaginary = {
+            -0.0006242550443857908f, -0.0019234686624258757f, -0.0042654648423194885f,
+            -0.008168308064341545f, -0.014327201060950756f, -0.023759860545396805f,
+            -0.03757232800126076f, -0.05577569454908371f, -0.07568276673555374f,
+            -0.09172472357749939f, -0.5979374051094055f, -0.09172472357749939f,
+            -0.07568276673555374f, -0.05577569454908371f, -0.03757232800126076f,
+            -0.023759860545396805f, -0.014327201060950756f, -0.008168308064341545f,
+            -0.0042654648423194885f, -0.0019234686624258757f, -0.0006242550443857908f
+        };
+
+        /// <summary>
         /// Cavern is run by a Mono runtime, use functions optimized for that.
         /// </summary>
         readonly bool mono;
@@ -28,6 +59,16 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
         /// Recycled forward transformation result holder.
         /// </summary>
         readonly (float[] real, float[] imaginary)[] results;
+
+        /// <summary>
+        /// Zero-initialized raw QMF history for L, R, C, Ls, and Rs in input matrix order, retained across frames.
+        /// </summary>
+        readonly (float[] real, float[] imaginary)[] inputHistory = new (float[], float[])[5];
+
+        /// <summary>
+        /// Next history timeslot to overwrite, independent of the frame-relative timeslot.
+        /// </summary>
+        int inputHistoryPosition;
 
         /// <summary>
         /// Recycled QMFB operation arrays.
@@ -66,6 +107,10 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
             timeslotCache = new float[objects][];
             results = new (float[], float[])[maxChannels];
             qmfbCache = new (float[], float[])[objects];
+            for (int ch = 0; ch < inputHistory.Length; ++ch) {
+                int historyLength = surroundFilterReal.Length * QuadratureMirrorFilterBank.subbands;
+                inputHistory[ch] = (new float[historyLength], new float[historyLength]);
+            }
             for (int obj = 0; obj < objects; ++obj) {
                 timeslotCache[obj] = new float[QuadratureMirrorFilterBank.subbands];
                 qmfbCache[obj] = (new float[QuadratureMirrorFilterBank.subbands], new float[QuadratureMirrorFilterBank.subbands]);
@@ -106,6 +151,8 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
             }
             taskWaiter.Wait();
 
+            PreprocessInputs(joc.ChannelCount);
+
             // Inverse transformations
             int objects = joc.ObjectCount;
             runs = objects;
@@ -137,6 +184,60 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
         /// Free up resources used by this object.
         /// </summary>
         public void Dispose() => taskWaiter.Dispose();
+
+        /// <summary>
+        /// Prepares the core channel QMF inputs once for all object mixing paths.
+        /// </summary>
+        void PreprocessInputs(int channels) {
+            int subbands = QuadratureMirrorFilterBank.subbands;
+            int historyLength = surroundFilterReal.Length;
+            int inputOffset = inputHistoryPosition * subbands;
+            int delayedPosition = inputHistoryPosition - inputDelay;
+            if (delayedPosition < 0) {
+                delayedPosition += historyLength;
+            }
+            int delayedOffset = delayedPosition * subbands;
+
+            for (int ch = 0, count = Math.Min(channels, inputHistory.Length); ch < count; ++ch) {
+                (float[] real, float[] imaginary) = results[ch];
+                (float[] real, float[] imaginary) history = inputHistory[ch];
+
+                // Preserve raw QMF samples before modifying the recycled forward output.
+                Array.Copy(real, 0, history.real, inputOffset, subbands);
+                Array.Copy(imaginary, 0, history.imaginary, inputOffset, subbands);
+
+                if (ch < 3) { // L, R, C: X[t - 10]
+                    Array.Copy(history.real, delayedOffset, real, 0, subbands);
+                    Array.Copy(history.imaginary, delayedOffset, imaginary, 0, subbands);
+                } else { // Ls, Rs
+                    for (int sb = 1; sb < subbands; ++sb) {
+                        real[sb] = history.imaginary[delayedOffset + sb];
+                        imaginary[sb] = -history.real[delayedOffset + sb];
+                    }
+
+                    // Band 0: 2 * sum(h[k] * X[t - 20 + k]), without an additional delay or rotation.
+                    float sumReal = 0, sumImaginary = 0;
+                    // The next ring entry is the oldest sample, X[t - 20].
+                    int sampleOffset = inputOffset + subbands;
+                    for (int tap = 0; tap < historyLength; ++tap) {
+                        if (sampleOffset == history.real.Length) {
+                            sampleOffset = 0;
+                        }
+                        float sampleReal = history.real[sampleOffset];
+                        float sampleImaginary = history.imaginary[sampleOffset];
+                        sumReal += surroundFilterReal[tap] * sampleReal - surroundFilterImaginary[tap] * sampleImaginary;
+                        sumImaginary += surroundFilterReal[tap] * sampleImaginary + surroundFilterImaginary[tap] * sampleReal;
+                        sampleOffset += subbands;
+                    }
+                    real[0] = 2 * sumReal;
+                    imaginary[0] = 2 * sumImaginary;
+                }
+            }
+
+            if (++inputHistoryPosition == historyLength) {
+                inputHistoryPosition = 0;
+            }
+        }
 
         /// <summary>
         /// Mixes channel-based samples by a matrix to the objects.
