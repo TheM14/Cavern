@@ -15,6 +15,11 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
         public bool[] ObjectActive = new bool[0];
 
         /// <summary>
+        /// Downmix configuration index (joc_dmx_config_idx).
+        /// </summary>
+        public int DownmixConfig { get; private set; }
+
+        /// <summary>
         /// Number of full bandwidth input channels.
         /// </summary>
         public int ChannelCount { get; private set; }
@@ -49,11 +54,11 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
         public void Dispose() => taskWaiter.Dispose();
 
         void DecodeHeader(BitExtractor extractor) {
-            int downmixConfig = extractor.Read(3);
-            if (downmixConfig > 4) {
+            DownmixConfig = extractor.Read(3);
+            if (DownmixConfig > 4) {
                 throw new UnsupportedFeatureException("joc_dmx_config_idx");
             }
-            ChannelCount = (downmixConfig == 0 || downmixConfig == 3) ? 5 : 7;
+            ChannelCount = (DownmixConfig == 0 || DownmixConfig == 3) ? 5 : 7;
             ObjectCount = extractor.Read(6) + 1;
             UpdateCache();
             if (extractor.Read(3) != 0) {

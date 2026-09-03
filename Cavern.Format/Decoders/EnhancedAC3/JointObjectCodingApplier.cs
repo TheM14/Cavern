@@ -17,28 +17,22 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
         /// <summary>
         /// Real coefficients of the surround band-0 complex FIR, ordered from oldest to newest input.
         /// </summary>
-        static readonly float[] surroundFilterReal = {
+        static readonly float[] surroundFilterReal = CreateSymmetricKernel(new[] {
             0.0013996040215715766f, 0.003839150769636035f, 0.007512642536312342f,
             0.012419373728334904f, 0.018367428332567215f, 0.0249701626598835f,
             0.03167900815606117f, 0.03785000368952751f, 0.04283412545919418f,
-            0.04607561603188515f, 0.047200120985507965f, 0.04607561603188515f,
-            0.04283412545919418f, 0.03785000368952751f, 0.03167900815606117f,
-            0.0249701626598835f, 0.018367428332567215f, 0.012419373728334904f,
-            0.007512642536312342f, 0.003839150769636035f, 0.0013996040215715766f
-        };
+            0.04607561603188515f, 0.047200120985507965f
+        });
 
         /// <summary>
         /// Imaginary coefficients of the surround band-0 complex FIR, ordered from oldest to newest input.
         /// </summary>
-        static readonly float[] surroundFilterImaginary = {
+        static readonly float[] surroundFilterImaginary = CreateSymmetricKernel(new[] {
             -0.0006242550443857908f, -0.0019234686624258757f, -0.0042654648423194885f,
             -0.008168308064341545f, -0.014327201060950756f, -0.023759860545396805f,
             -0.03757232800126076f, -0.05577569454908371f, -0.07568276673555374f,
-            -0.09172472357749939f, -0.5979374051094055f, -0.09172472357749939f,
-            -0.07568276673555374f, -0.05577569454908371f, -0.03757232800126076f,
-            -0.023759860545396805f, -0.014327201060950756f, -0.008168308064341545f,
-            -0.0042654648423194885f, -0.0019234686624258757f, -0.0006242550443857908f
-        };
+            -0.09172472357749939f, -0.5979374051094055f
+        });
 
         /// <summary>
         /// Cavern is run by a Mono runtime, use functions optimized for that.
@@ -151,7 +145,9 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
             }
             taskWaiter.Wait();
 
-            PreprocessInputs(joc.ChannelCount);
+            if (joc.DownmixConfig == 3) {
+                PreprocessInputs(joc.ChannelCount);
+            }
 
             // Inverse transformations
             int objects = joc.ObjectCount;
@@ -184,6 +180,17 @@ namespace Cavern.Format.Decoders.EnhancedAC3 {
         /// Free up resources used by this object.
         /// </summary>
         public void Dispose() => taskWaiter.Dispose();
+
+        /// <summary>
+        /// Mirrors the unique taps, including the center tap, into a complete symmetric kernel.
+        /// </summary>
+        static float[] CreateSymmetricKernel(float[] uniqueTaps) {
+            float[] kernel = new float[2 * uniqueTaps.Length - 1];
+            for (int tap = 0; tap < uniqueTaps.Length; ++tap) {
+                kernel[tap] = kernel[kernel.Length - 1 - tap] = uniqueTaps[tap];
+            }
+            return kernel;
+        }
 
         /// <summary>
         /// Prepares the core channel QMF inputs once for all object mixing paths.
