@@ -113,12 +113,43 @@ namespace Cavern.QuickEQ.SignalGeneration {
         }
 
         /// <summary>
+        /// Generates a multitone sine wave signal.
+        /// </summary>
+        /// <param name="frequencies">The frequencies of the sine waves in Hertz</param>
+        /// <param name="length">The length of the generated signal in samples</param>
+        /// <param name="sampleRate">Samples per second</param>
+        /// <remarks>No windowing is used, and a click will be heard if the last period doesn't end at
+        /// the <paramref name="length"/>.</remarks>
+        public static float[] SineMultitone(float[] frequencies, int length, int sampleRate) {
+            float[] result = new float[length];
+            float[] multipliers = new float[frequencies.Length];
+            for (int f = 0; f < frequencies.Length; f++) {
+                multipliers[f] = 2 * MathF.PI * frequencies[f] / sampleRate;
+            }
+            for (int i = 0; i < length; i++) {
+                float sum = 0;
+                for (int f = 0; f < frequencies.Length; f++) {
+                    sum += MathF.Sin(multipliers[f] * i);
+                }
+                result[i] = sum;
+            }
+            return result;
+        }
+
+        /// <summary>
         /// Generates white noise.
         /// </summary>
         /// <param name="length">The length of the generated noise in samples</param>
-        public static float[] WhiteNoise(int length) {
+        public static float[] WhiteNoise(int length) => WhiteNoise(length, -1);
+
+        /// <summary>
+        /// Generates white noise.
+        /// </summary>
+        /// <param name="length">The length of the generated noise in samples</param>
+        /// <param name="seed">Seed for the random number generator, for reproducible noise</param>
+        public static float[] WhiteNoise(int length, int seed) {
             float[] result = new float[length];
-            Random generator = new Random();
+            Random generator = seed == -1 ? new Random() : new Random(seed);
             for (int i = 0; i < length; i++) {
                 result[i] = (float)(generator.NextDouble() * 2 - 1);
             }

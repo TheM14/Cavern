@@ -1,9 +1,10 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.CompilerServices;
 
 using Cavern.Filters;
+using Cavern.QuickEQ.Equalization.Enums;
 using Cavern.QuickEQ.Utilities;
 using Cavern.Utilities;
 
@@ -180,6 +181,53 @@ namespace Cavern.QuickEQ.Equalization {
                 }
             }
             return new Equalizer(bands, true);
+        }
+
+        /// <summary>
+        /// Parse an Equalizer from a linear transfer function with smoothing.
+        /// </summary>
+        /// <param name="source">The complex transfer function.</param>
+        /// <param name="sampleRate">Sample rate of the transfer function.</param>
+        /// <param name="smoothing">Width of the smoothing window in octaves.</param>
+        /// <param name="mode">The space in which smoothing is applied.</param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Equalizer FromTransferFunction(Complex[] source, int sampleRate, double smoothing, SmoothingMode mode)
+            => FromTransferFunction(source, sampleRate, 0, sampleRate / 2.0, smoothing, smoothing, mode);
+
+        /// <summary>
+        /// Parse an Equalizer from a linear transfer function with a smoothing window that changes by frequency.
+        /// </summary>
+        /// <param name="source">The complex transfer function.</param>
+        /// <param name="sampleRate">Sample rate of the transfer function.</param>
+        /// <param name="startSmoothing">Smoothing window size in octaves at the beginning of the spectrum.</param>
+        /// <param name="endSmoothing">Smoothing window size in octaves at the end of the spectrum.</param>
+        /// <param name="mode">The space in which smoothing is applied.</param>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static Equalizer FromTransferFunction(Complex[] source, int sampleRate, double startSmoothing, double endSmoothing, SmoothingMode mode)
+            => FromTransferFunction(source, sampleRate, 0, sampleRate / 2.0, startSmoothing, endSmoothing, mode);
+
+        /// <summary>
+        /// Parse a range-limited Equalizer from a linear transfer function with a smoothing window that changes by frequency.
+        /// </summary>
+        /// <param name="source">The complex transfer function.</param>
+        /// <param name="sampleRate">Sample rate of the transfer function.</param>
+        /// <param name="startFreq">Start frequency of the frequency range.</param>
+        /// <param name="endFreq">End frequency of the frequency range.</param>
+        /// <param name="startSmoothing">Smoothing window size in octaves at the beginning of the spectrum.</param>
+        /// <param name="endSmoothing">Smoothing window size in octaves at the end of the spectrum.</param>
+        /// <param name="mode">The space in which smoothing is applied.</param>
+        public static Equalizer FromTransferFunction(Complex[] source, int sampleRate, double startFreq, double endFreq,
+            double startSmoothing, double endSmoothing, SmoothingMode mode) {
+            Equalizer result;
+            if (mode == SmoothingMode.ComplexSpace) {
+                Complex[] smoothed = ComplexEqualization.Smooth(source, sampleRate, startFreq, endFreq, startSmoothing, endSmoothing);
+                result = FromTransferFunction(smoothed, sampleRate);
+            } else {
+                result = FromTransferFunction(source, sampleRate);
+                result.Smooth(startFreq, endFreq, startSmoothing, endSmoothing, mode);
+            }
+            result.Limit(startFreq, endFreq);
+            return result;
         }
     }
 }

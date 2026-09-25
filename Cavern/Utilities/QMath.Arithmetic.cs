@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 
@@ -58,7 +58,7 @@ namespace Cavern.Utilities {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static double Sum(this double[] array, int from, int to) {
             double sum = 0;
-            for (int i = from; i < to; ++i) {
+            for (int i = from; i < to; i++) {
                 sum += array[i];
             }
             return sum;
@@ -82,7 +82,7 @@ namespace Cavern.Utilities {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float Sum(this float[] array, int from, int to) {
             float sum = 0;
-            for (int i = from; i < to; ++i) {
+            for (int i = from; i < to; i++) {
                 sum += array[i];
             }
             return sum;
@@ -106,7 +106,7 @@ namespace Cavern.Utilities {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static int Sum(this int[] array, int from, int to) {
             int sum = 0;
-            for (int i = from; i < to; ++i) {
+            for (int i = from; i < to; i++) {
                 sum += array[i];
             }
             return sum;
@@ -118,7 +118,7 @@ namespace Cavern.Utilities {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static double Sum(this IReadOnlyList<double> list) {
             double sum = 0;
-            for (int i = 0, to = list.Count; i < to; ++i) {
+            for (int i = 0, to = list.Count; i < to; i++) {
                 sum += list[i];
             }
             return sum;
@@ -143,7 +143,7 @@ namespace Cavern.Utilities {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static float SumAbs(this float[] array, int from, int to) {
             float sum = 0;
-            for (int i = from; i < to; ++i) {
+            for (int i = from; i < to; i++) {
                 sum += Math.Abs(array[i]);
             }
             return sum;

@@ -1,8 +1,10 @@
-﻿using System.Collections.Generic;
-using System.Linq;
+﻿using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
 
 using Cavern.Channels;
 using Cavern.QuickEQ.Equalization;
+using Cavern.Utilities;
 
 namespace Cavern.QuickEQ.Measurement {
     /// <summary>
@@ -56,7 +58,14 @@ namespace Cavern.QuickEQ.Measurement {
         /// <summary>
         /// Using the settings, calculate the average spectrum for each channel.
         /// </summary>
-        public Equalizer[] Merge() {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public Equalizer[] Merge() => Merge(AveragingMode.FrequencyDomain);
+
+        /// <summary>
+        /// Using the settings, calculate the average spectrum for each channel.
+        /// </summary>
+        /// <param name="averagingMode">How to average the measurements.</param>
+        public Equalizer[] Merge(AveragingMode averagingMode) {
             Equalizer calibration = MicCalibration;
             if (calibration != null) {
                 calibration = (Equalizer)calibration.Clone();
@@ -65,14 +74,20 @@ namespace Cavern.QuickEQ.Measurement {
 
             Equalizer[] result = new Equalizer[Channels];
             for (int i = 0; i < Channels; i++) {
-                result[i] = EQGenerator.Average(MeasurementPoints.Select(x => {
+                Equalizer[] channelEQs = MeasurementPoints.SelectArray(x => {
                     Equalizer y = (Equalizer)x.FrequencyResponses[i].Clone();
                     y.DownsampleLogarithmically(BandCount, MinFreq, MaxFreq);
                     if (calibration != null) {
                         y.AlignTo(calibration);
                     }
                     return y;
-                }).ToArray());
+                });
+
+                result[i] = averagingMode switch {
+                    AveragingMode.FrequencyDomain => EQGenerator.Average(channelEQs),
+                    AveragingMode.FrequencyDomainRMS => EQGenerator.AverageRMS(channelEQs),
+                    _ => throw new NotImplementedException()
+                };
             }
             return result;
         }
